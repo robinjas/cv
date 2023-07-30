@@ -39,7 +39,7 @@ class GicaRedfish:
     @_request
     def get(self, uri_endpoint):
         return requests.get(
-            f"{self.uri_base}{uri_endpoint}",
+            f"{self.uri_base}{uri_endpoint.lstrip('/')}",
             headers=self.headers,
             verify=False,
             auth=self.cred,
@@ -232,127 +232,51 @@ class DellApi(GicaRedfish):
 
 
 class HpeApi(GicaRedfish):
-    def __init__(self, user, password, base_uri):
-        self.logger = logging.getLogger("hpe_redfish")
-        GicaRedfish.__init__(self, user, password, base_uri)
-        self.user = user
-        self.password = password
-        
-    
+   def __init__(self, user, password, base_uri):
+       self.logger = logging.getLogger("hpe_redfish")
+       GicaRedfish.__init__(self, user, password, base_uri)
+       self.user = user
+       self.password = password
 
-    def get_firmware_inventory(self):
-        response = self.get("UpdateService/FirmwareInventory")
+   def get_firmware_inventory(self):
+       response = self.get("UpdateService/FirmwareInventory")
+       return response if response else {}
 
-        firmware_versions = []
+   def get_system_status(self):
+       response = self.get("Systems/1")
+       return response.get('Status') if response else {}
 
-        if response is not None:
-            for member in response.get("Members", []):
-                firmware_detail = self.get(
-                    member.get("@odata.id", "").replace("/redfish/v1", "")
-                )
-                if firmware_detail is not None:
-                    firmware_versions.append(
-                        {
-                            "Name": firmware_detail.get("Name", ""),
-                            "Version": firmware_detail.get("Version", ""),
-                            "Updateable": firmware_detail.get("Updateable", ""),
-                            "Id": firmware_detail.get("Id", ""),
-                        }
-                    )
+   def get_thermal_details(self):
+       response = self.get("Chassis/1/Thermal")
+       return response if response else {}
 
-            self.logger.info(f"Firmware versions: {firmware_versions}")
-            print(f"Firmware versions: {firmware_versions}")  # Print to console
-        else:
-            self.logger.error("Error: Failed to retrieve firmware versions.")
+   def get_power_details(self):
+       response = self.get("Chassis/1/Power")
+       return response if response else {}
 
-        return firmware_versions
-    
-    def get_system_status(self):
-        response = self.get("Systems/1")
-        if response is not None and 'Status' in response:
-            return response['Status']
-        else:
-            self.logger.error("Error: Failed to retrieve system status.")
-            return None
+   def get_processor_info(self):
+       response = self.get("Systems/1/Processors")
+       return response.get('Members', []) if response else []
 
-    def get_thermal_details(self):
-        response = self.get("Chassis/1/Thermal")
-        if response is not None:
-            return response
-        else:
-            self.logger.error("Error: Failed to retrieve thermal details.")
-            return None
+   def get_memory(self):
+       response = self.get("Systems/1/Memory")
+       total_memory = 0
+       if response:
+           members = response.get("Members", [])
+           for memory_module in members:
+               memory_detail = memory_module.get("@odata.id", "")
+               if memory_detail:
+                   memory_info = self.get(memory_detail.replace("/redfish/v1", ""))
+                   if memory_info:
+                       total_memory += memory_info.get("CapacityMiB", 0)
+                       
+       return total_memory/1024 
 
-    def get_power_details(self):
-        response = self.get("Chassis/1/Power")
-        if response is not None:
-            return response
-        else:
-            self.logger.error("Error: Failed to retrieve power details.")
-            return None
-
-    def get_processor_info(self):
-        response = self.get("Systems/1/Processors")
-        if response is not None and 'Members' in response:
-            return response['Members']
-        else:
-            self.logger.error("Error: Failed to retrieve processor info.")
-            return None
-
-    
-    def get_memory(self):
-        response = self.get("Systems/1/Memory")
-        total_memory = 0
-
-        if response is not None and "Members" in response:
-            for memory_module in response["Members"]:
-                memory_detail = memory_module.get("@odata.id", "")
-                if memory_detail:
-                    memory_info = self.get(memory_detail.replace("/redfish/v1", ""))
-                    if memory_info is not None:
-                        memory_capacity = memory_info.get("CapacityMiB", 0)
-                        total_memory += memory_capacity
-
-                        # Print individual memory details (optional)
-                        memory_name = memory_info.get("DeviceLocator", "Unknown DIMM")
-                        print(f"{memory_name}: {memory_capacity} MiB")
-
-            total_memory_gib = total_memory / 1024  # Convert to GiB
-            self.logger.info(f"Total Memory: {total_memory_gib} GB")
-            print(f"Total Memory: {total_memory_gib} GB")  # Print to console
-        else:
-            self.logger.error("Error: Failed to retrieve memory details.")
-
-        return total_memory_gib
-
-
-
-
-
-
-
-    def get_network_interfaces(self):
-        response = self.get("Systems/1/EthernetInterfaces")
-        if response is not None and 'Members' in response:
-            return response['Members']
-        else:
-            self.logger.error("Error: Failed to retrieve network interfaces.")
-            return None
-
+   def get_network_interfaces(self):
+       response = self.get("Systems/1/EthernetInterfaces")
+       return response.get('Members', []) if response else []
 
 if __name__ == "__main__":
-    api = HpeApi("mhsadmin", "letsr0ll", "https://192.168.95.88/redfish/v1/")
-
-    # raid = api.get_raid_ids()
-    # memory = api.get_memory()
-    # firmware = api.get_firmware_versions()
-    # bios_attributes = api.get_bios_attributes()
-    # idrac_attributes = api.get_dell_idrac_attributes()
-
-    # print("RAID IDs:", raid)
-    # print("Total Memory:", memory, "GB")
-    # print("Firmware Versions:", firmware)
-    # print("BIOS Attributes:", bios_attributes)
-    # print("iDRAC Attributes:", idrac_attributes)
-    # api.get_boot_order()
-    api.get_memory()
+   api = HpeApi("mhsadmin", "letsr0ll", "https://192.168.95.88/redfish/v1/")
+   print("Total Memory:", api.get_memory(), "GB")
+   
